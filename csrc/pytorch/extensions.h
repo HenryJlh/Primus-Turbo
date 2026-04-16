@@ -8,8 +8,6 @@
 #include <ATen/Dispatch.h>
 #include <ATen/hip/HIPContext.h>
 #include <ATen/hip/HIPGeneratorImpl.h>
-#include <ATen/miopen/Handle.h>
-#include <ATen/native/DispatchStub.h>
 #include <c10/macros/Macros.h>
 #include <torch/extension.h>
 #include <torch/torch.h>
@@ -18,62 +16,8 @@
 
 #include "primus_turbo/common.h"
 
-#include "deep_ep/deep_ep.hpp"
-
 namespace primus_turbo::pytorch {
 
-/* Quantize */
-
-at::Tensor fp8_quantize(const at::Tensor input, const at::Tensor scale,
-                        const at::ScalarType dest_dtype);
-
-at::Tensor fp8_quantize_meta(const at::Tensor input, const at::Tensor scale,
-                             const at::ScalarType dest_dtype);
-
-at::Tensor fp8_dequantize(const at::Tensor input, const at::Tensor scale_inv,
-                          const at::ScalarType dest_dtype);
-
-at::Tensor fp8_dequantize_meta(const at::Tensor input, const at::Tensor scale_inv,
-                               const at::ScalarType dest_dtype);
-
-/* New Quantization */
-std::vector<at::Tensor> quantize_fp8_tensorwise(const at::Tensor     input,
-                                                const at::ScalarType dest_dtype);
-
-std::vector<at::Tensor> quantize_fp8_tensorwise_meta(const at::Tensor     input,
-                                                     const at::ScalarType dest_dtype);
-
-std::vector<at::Tensor> quantize_fp8_rowwise(const at::Tensor     input,
-                                             const at::ScalarType dest_dtype, const int64_t axis);
-
-std::vector<at::Tensor> quantize_fp8_rowwise_meta(const at::Tensor     input,
-                                                  const at::ScalarType dest_dtype,
-                                                  const int64_t        axis);
-
-/* GEMM */
-
-at::Tensor hipblaslt_gemm(at::Tensor A, at::Tensor scaleA_inv, at::Tensor B, at::Tensor scaleB_inv,
-                          const at::ScalarType out_dtype, bool transA, bool transB, bool transC);
-
-at::Tensor hipblaslt_gemm_meta(at::Tensor A, at::Tensor scaleA_inv, at::Tensor B,
-                               at::Tensor scaleB_inv, const at::ScalarType out_dtype, bool transA,
-                               bool transB, bool transC);
-
-std::vector<torch::Tensor> rendezvous_shmem(const std::string          &group_name,
-                                            const std::vector<int64_t> &shape,
-                                            c10::ScalarType             dtype);
-/* Normalization */
-at::Tensor rmsnorm_fwd(const at::Tensor &input, const at::Tensor &gamma, const double eps);
-
-at::Tensor rmsnorm_fwd_meta(const at::Tensor &input, const at::Tensor &gamma, const double eps);
-
-std::vector<at::Tensor> rmsnorm_bwd(const at::Tensor &input, const at::Tensor &gamma,
-                                    const at::Tensor &grad_output, const double eps);
-
-std::vector<at::Tensor> rmsnorm_bwd_meta(const at::Tensor &input, const at::Tensor &gamma,
-                                         const at::Tensor &grad_output, const double eps);
-
-/* Grouped Gemm */
 at::Tensor grouped_gemm(at::Tensor &a, at::Tensor &b, at::Tensor &group_lens,
                         at::Tensor &group_offs, const bool transA, const bool transB,
                         c10::optional<int64_t> num_cu);
@@ -90,37 +34,8 @@ at::Tensor grouped_gemm_variable_k_meta(at::Tensor &a, at::Tensor &b, at::Tensor
                                         at::Tensor &group_offs, const bool transA,
                                         const bool transB, c10::optional<int64_t> num_cu);
 
-at::Tensor grouped_gemm_fp8(at::Tensor &a, at::Tensor &b, at::Tensor &a_scales,
-                            at::Tensor &b_scales, at::Tensor &group_lens, at::Tensor &group_offs,
-                            const bool transA, const bool transB, at::ScalarType out_dtype,
-                            const std::string &granularity, c10::optional<int64_t> num_cu);
-
-at::Tensor grouped_gemm_fp8_meta(at::Tensor &a, at::Tensor &b, at::Tensor &a_scales,
-                                 at::Tensor &b_scales, at::Tensor &group_lens,
-                                 at::Tensor &group_offs, const bool transA, const bool transB,
-                                 at::ScalarType out_dtype, const std::string &granularity,
-                                 c10::optional<int64_t> num_cu);
-
-at::Tensor grouped_gemm_fp8_variable_k(at::Tensor &a, at::Tensor &b, at::Tensor &a_scales,
-                                       at::Tensor &b_scales, at::Tensor &group_lens,
-                                       at::Tensor &group_offs, const bool transA, const bool transB,
-                                       at::ScalarType out_dtype, const std::string &granularity,
-                                       c10::optional<int64_t> num_cu);
-
-at::Tensor grouped_gemm_fp8_variable_k_meta(at::Tensor &a, at::Tensor &b, at::Tensor &a_scales,
-                                            at::Tensor &b_scales, at::Tensor &group_lens,
-                                            at::Tensor &group_offs, const bool transA,
-                                            const bool transB, at::ScalarType out_dtype,
-                                            const std::string     &granularity,
-                                            c10::optional<int64_t> num_cu);
-
 at::Tensor grouped_gemm_compute_offs(at::Tensor &group_lens);
 
 at::Tensor grouped_gemm_compute_offs_meta(at::Tensor &group_lens);
-
-/* Runtime */
-int64_t create_stream_with_cu_masks(const int device_id, const std::vector<uint32_t> &cu_masks);
-
-void destroy_stream(const int device_id, const int64_t stream_ptr);
 
 } // namespace primus_turbo::pytorch

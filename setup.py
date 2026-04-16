@@ -8,29 +8,27 @@ from pathlib import Path
 from setuptools import find_packages, setup
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
-from tools.build_utils import HIPExtension, find_rocshmem_library
+from tools.build_utils import HIPExtension
 
 PROJECT_ROOT = Path(os.path.dirname(__file__)).resolve()
 DEFAULT_HIPCC = "/opt/rocm/bin/hipcc"
 
-# try to found rocshmem in default path or enviorment
-ROCSHMEM_LIBRARY = find_rocshmem_library()
-
 # -------- env switches --------
-BUILD_TORCH = os.environ.get("PRIMUS_TURBO_BUILD_TORCH", "1") == "1"
-BUILD_JAX = os.environ.get("PRIMUS_TURBO_BUILD_JAX", "0") == "1"
+BUILD_TORCH = os.environ.get("GROUP_GEMM_PRIMUS_BUILD_TORCH", "1") == "1"
 
 # -------- Supported GPU ARCHS --------
 SUPPORTED_GPU_ARCHS = ["gfx942", "gfx950", "gfx90a"]
 
+KERNEL_LIB_SONAME = "libgroup_gemm_primus_kernels.so"
 
-class TurboBuildExt(BuildExtension):
-    KERNEL_EXT_NAME = "libprimus_turbo_kernels"
+
+class GroupGemmPrimusBuildExt(BuildExtension):
+    KERNEL_EXT_NAME = "libgroup_gemm_primus_kernels"
 
     def get_ext_filename(self, ext_name: str) -> str:
         filename = super().get_ext_filename(ext_name)
         if ext_name == self.KERNEL_EXT_NAME:
-            filename = os.path.join(*filename.split(os.sep)[:-1], "libprimus_turbo_kernels.so")
+            filename = os.path.join(*filename.split(os.sep)[:-1], KERNEL_LIB_SONAME)
         return filename
 
     def build_extension(self, ext):
@@ -39,15 +37,13 @@ class TurboBuildExt(BuildExtension):
         if ext.name == self.KERNEL_EXT_NAME:
             built_path = Path(self.get_ext_fullpath(ext.name))
             filename = built_path.name
-            #
-            src_dst_dir = PROJECT_ROOT / "primus_turbo" / "lib"
+            src_dst_dir = PROJECT_ROOT / "group_gemm_primus" / "lib"
             src_dst_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(built_path, src_dst_dir / filename)
-            #
-            build_dst_dir = Path(self.build_lib) / "primus_turbo" / "lib"
+            build_dst_dir = Path(self.build_lib) / "group_gemm_primus" / "lib"
             build_dst_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(built_path, build_dst_dir / filename)
-            print(f"[TurboBuildExt] Copied {filename} to:")
+            print(f"[GroupGemmPrimusBuildExt] Copied {filename} to:")
             print(f"  - {src_dst_dir}")
             print(f"  - {build_dst_dir}")
 
@@ -66,20 +62,20 @@ def all_files_in_dir(path, name_extensions=None):
 def setup_cxx_env():
     user_cxx = os.environ.get("CXX")
     if user_cxx:
-        print(f"[Primus-Turbo Setup] Using user-provided CXX: {user_cxx}")
+        print(f"[groupGEMM-primus Setup] Using user-provided CXX: {user_cxx}")
     else:
         os.environ["CXX"] = DEFAULT_HIPCC
-        print(f"[Primus-Turbo Setup] No CXX provided. Defaulting to: {DEFAULT_HIPCC}")
+        print(f"[groupGEMM-primus Setup] No CXX provided. Defaulting to: {DEFAULT_HIPCC}")
 
     os.environ.setdefault("CMAKE_CXX_COMPILER", os.environ["CXX"])
     os.environ.setdefault("CMAKE_HIP_COMPILER", os.environ["CXX"])
-    print(f"[Primus-Turbo Setup] CMAKE_CXX_COMPILER set to: {os.environ['CMAKE_CXX_COMPILER']}")
-    print(f"[Primus-Turbo Setup] CMAKE_HIP_COMPILER set to: {os.environ['CMAKE_HIP_COMPILER']}")
+    print(f"[groupGEMM-primus Setup] CMAKE_CXX_COMPILER set to: {os.environ['CMAKE_CXX_COMPILER']}")
+    print(f"[groupGEMM-primus Setup] CMAKE_HIP_COMPILER set to: {os.environ['CMAKE_HIP_COMPILER']}")
 
 
 def get_version():
     base_version = None
-    with open(os.path.join("primus_turbo", "__init__.py")) as f:
+    with open(os.path.join("group_gemm_primus", "__init__.py")) as f:
         for line in f:
             match = re.match(r"^__version__\s*=\s*[\"'](.+?)[\"']", line)
             if match:
@@ -106,8 +102,7 @@ def get_offload_archs():
     else:
         arch_list = [arch.strip().lower() for arch in gpu_archs.split(";")]
 
-    # TODO:Support compile multi-arch.
-    assert len(arch_list) == 1, "Primus Turbo only supports single arch for now."
+    assert len(arch_list) == 1, "groupGEMM-primus only supports single arch for now."
 
     macro_arch_list = []
     offload_arch_list = []
@@ -117,7 +112,7 @@ def get_offload_archs():
             macro_arch_list.append(f"-DPRIMUS_TURBO_{arch.upper()}")
         else:
             print(f"[WARNING] Ignoring unsupported GPU_ARCHS entry: {arch}")
-    assert len(offload_arch_list) == 1, "Primus Turbo: expected exactly one --offload-arch."
+    assert len(offload_arch_list) == 1, "groupGEMM-primus: expected exactly one --offload-arch."
     return offload_arch_list, macro_arch_list
 
 
@@ -158,21 +153,17 @@ def get_common_flags():
         "-amdgpu-function-calls=false",
         "-std=c++20",
         "-fgpu-rdc",
+        "-DDISABLE_ROCSHMEM",
     ]
 
-    # Device Archs
     offload_arch_list, macro_arch_list = get_offload_archs()
     cxx_flags += macro_arch_list
+    cxx_flags.append("-DDISABLE_ROCSHMEM")
     nvcc_flags += macro_arch_list
     nvcc_flags += offload_arch_list
 
-    # Max Jobs
     max_jobs = int(os.getenv("MAX_JOBS", "64"))
     nvcc_flags.append(f"-parallel-jobs={max_jobs}")
-
-    if "--offload-arch=gfx950" in nvcc_flags:
-        cxx_flags.append("-DCK_TILE_USE_OCP_FP8")
-        nvcc_flags.append("-DCK_TILE_USE_OCP_FP8")
 
     return {
         "extra_link_args": extra_link_args,
@@ -187,10 +178,10 @@ def build_kernels_extension():
     extra_flags = get_common_flags()
     extra_flags["extra_link_args"] += [
         "-shared",
-        "-Wl,-soname,libprimus_turbo_kernels.so",
+        f"-Wl,-soname,{KERNEL_LIB_SONAME}",
     ]
 
-    kernels_source_files = Path(PROJECT_ROOT / "csrc" / "kernels")
+    kernels_source_files = Path(PROJECT_ROOT / "csrc" / "kernels" / "grouped_gemm")
     kernels_sources = all_files_in_dir(kernels_source_files, name_extensions=["cpp", "cc", "cu"])
 
     include_dirs = [
@@ -198,27 +189,12 @@ def build_kernels_extension():
         Path(PROJECT_ROOT / "3rdparty" / "composable_kernel" / "include"),
         Path(PROJECT_ROOT / "csrc"),
     ]
-    library_dirs = []
-
-    if ROCSHMEM_LIBRARY is None:
-        extra_flags["extra_compile_args"]["nvcc"].append("-DDISABLE_ROCSHMEM")
-        extra_flags["extra_compile_args"]["cxx"].append("-DDISABLE_ROCSHMEM")
-    else:
-        include_dirs.extend(ROCSHMEM_LIBRARY.include_dirs)
-        library_dirs.extend(ROCSHMEM_LIBRARY.library_dirs)
-        extra_flags["extra_link_args"].extend(ROCSHMEM_LIBRARY.extra_link_args)
-
-        if (
-            "-fgpu-rdc" in ROCSHMEM_LIBRARY.extra_link_args
-            or "--hip-link" in ROCSHMEM_LIBRARY.extra_link_args
-        ):
-            extra_flags["extra_compile_args"]["nvcc"] += ["-fgpu-rdc"]
 
     return HIPExtension(
-        name="libprimus_turbo_kernels",
+        name="libgroup_gemm_primus_kernels",
         include_dirs=include_dirs,
         sources=kernels_sources,
-        library_dirs=library_dirs,
+        library_dirs=[],
         libraries=["hipblaslt"],
         **extra_flags,
     )
@@ -228,98 +204,44 @@ def build_torch_extension():
     if not BUILD_TORCH:
         return None
 
-    # Link and Compile flags
     extra_flags = get_common_flags()
     extra_flags["extra_link_args"] = [
         "-Wl,-rpath,$ORIGIN/../lib",
-        f"-L{PROJECT_ROOT / 'primus_turbo' / 'lib'}",
-        "-lprimus_turbo_kernels",
+        f"-L{PROJECT_ROOT / 'group_gemm_primus' / 'lib'}",
+        "-lgroup_gemm_primus_kernels",
         *extra_flags.get("extra_link_args", []),
     ]
 
-    if ROCSHMEM_LIBRARY is None:
-        extra_flags["extra_compile_args"]["nvcc"].append("-DDISABLE_ROCSHMEM")
-        extra_flags["extra_compile_args"]["cxx"].append("-DDISABLE_ROCSHMEM")
-
-    # CPP
     pytorch_csrc_source_files = Path(PROJECT_ROOT / "csrc" / "pytorch")
     sources = all_files_in_dir(pytorch_csrc_source_files, name_extensions=["cpp", "cc", "cu"])
 
     return CUDAExtension(
-        name="primus_turbo.pytorch._C",
+        name="group_gemm_primus.pytorch._C",
         sources=sources,
         include_dirs=[
             Path(PROJECT_ROOT / "csrc" / "include"),
             Path(PROJECT_ROOT / "3rdparty" / "composable_kernel" / "include"),
             Path(PROJECT_ROOT / "csrc"),
-        ],
-        **extra_flags,
-    )
-
-
-def build_jax_extension():
-    if not BUILD_JAX:
-        return None
-
-    import pybind11
-    from jax import ffi
-
-    # Link and Compile flags
-    extra_flags = get_common_flags()
-    extra_flags["extra_link_args"] = [
-        "-Wl,-rpath,$ORIGIN/../lib",
-        f"-L{PROJECT_ROOT / 'primus_turbo' / 'lib'}",
-        "-lprimus_turbo_kernels",
-        *extra_flags.get("extra_link_args", []),
-    ]
-
-    # CPP
-    jax_csrc_source_files = Path(PROJECT_ROOT / "csrc" / "jax")
-    sources = all_files_in_dir(jax_csrc_source_files, name_extensions=["cpp", "cc", "cu"])
-
-    return HIPExtension(
-        name="primus_turbo.jax._C",
-        sources=sources,
-        include_dirs=[
-            Path(PROJECT_ROOT / "csrc" / "include"),
-            Path(PROJECT_ROOT / "3rdparty" / "composable_kernel" / "include"),
-            Path(PROJECT_ROOT / "csrc"),
-            ffi.include_dir(),
-            pybind11.get_include(),
         ],
         **extra_flags,
     )
 
 
 if __name__ == "__main__":
-
-    # set cxx
     setup_cxx_env()
 
-    # Extensions
     kernels_ext = build_kernels_extension()
-
     torch_ext = build_torch_extension()
-    jax_ext = build_jax_extension()
-    ext_modules = [kernels_ext] + [e for e in (torch_ext, jax_ext) if e is not None]
-
-    # Entry points and Install Requires
-    entry_points = {}
-    install_requires = [
-        "aiter @ git+https://github.com/ROCm/aiter.git@97007320d4b1d7b882d99af02cad02fbb9957559",
-        "hip-python",
-    ]
-    if BUILD_JAX:
-        entry_points["jax_plugins"] = ["primus_turbo = primus_turbo.jax"]
-        install_requires.append("jax[rocm]")
+    ext_modules = [kernels_ext] + ([torch_ext] if torch_ext is not None else [])
 
     setup(
-        name="primus_turbo",
+        name="group-gemm-primus",
         version=get_version(),
         packages=find_packages(exclude=["tests", "tests.*"]),
-        package_data={"primus_turbo": ["lib/*.so"]},
+        package_data={"group_gemm_primus": ["lib/*.so"]},
         ext_modules=ext_modules,
-        cmdclass={"build_ext": TurboBuildExt.with_options(use_ninja=True)},
-        entry_points=entry_points,
-        install_requires=install_requires,
+        cmdclass={"build_ext": GroupGemmPrimusBuildExt.with_options(use_ninja=True)},
+        install_requires=[
+            "hip-python",
+        ],
     )

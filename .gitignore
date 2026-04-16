@@ -3,7 +3,6 @@ __pycache__
 build
 *.egg-info
 .vscode
-.gitmodules
 test-reports/
 *_hip.h
 *.hip
@@ -11,4 +10,3 @@ test-reports/
 *_hip.hpp
 *_hip.cuh
 *.sif
-transformers-qwen3-moe-fused/
