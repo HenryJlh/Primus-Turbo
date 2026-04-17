@@ -111,7 +111,7 @@ public:
     using GemmPipeline = ck_tile::GemmPipelineAgBgCrCompV3<UniversalGemmProblem>;
     // using UniversalGemmPipeline = ck_tile::BaseGemmPipelineAgBgCrCompV3;
 
-    static constexpr ck_tile::memory_operation_enum MemoryOp = ck_tile::memory_operation_enum::set;
+    // 与当前子模块 CK 一致：isCTransposed 之后是 kNumWaveGroups_（index_t），不再有 MemoryOp 模板实参。
     using GemmEpilogue = ck_tile::CShuffleEpilogue<
         ck_tile::CShuffleEpilogueProblem<
             ADataType, BDataType, ck_tile::tuple<>, AccDataType,
@@ -120,8 +120,7 @@ public:
             TilePartitioner::MPerBlock, TilePartitioner::NPerBlock,
             TileConfig::M_Warp, TileConfig::N_Warp,
             TileConfig::M_Warp_Tile, TileConfig::N_Warp_Tile, TileConfig::K_Warp_Tile,
-            UniversalGemmProblem::TransposeC,
-            MemoryOp
+            UniversalGemmProblem::TransposeC
         >
     >;
 
