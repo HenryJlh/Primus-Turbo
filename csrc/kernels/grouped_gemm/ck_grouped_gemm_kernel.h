@@ -111,7 +111,6 @@ public:
     using GemmPipeline = ck_tile::GemmPipelineAgBgCrCompV3<UniversalGemmProblem>;
     // using UniversalGemmPipeline = ck_tile::BaseGemmPipelineAgBgCrCompV3;
 
-    // 与当前子模块 CK 一致：isCTransposed 之后是 kNumWaveGroups_（index_t），不再有 MemoryOp 模板实参。
     using GemmEpilogue = ck_tile::CShuffleEpilogue<
         ck_tile::CShuffleEpilogueProblem<
             ADataType, BDataType, ck_tile::tuple<>, AccDataType,
